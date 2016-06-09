@@ -1,0 +1,361 @@
+﻿<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<head>
+	<meta charset="UTF-8" />
+	<title>Maze Game</title>
+	<style>
+	img {
+		display: none;
+	}
+	
+	button {
+		padding: 3px;
+	}
+	
+	body {
+		background-image: url('background.jpg');
+		background-repeat: no-repeat;
+		background-size: cover;
+	}
+	</style>
+	<font color="Blue" face="微軟正黑體" size="7">
+		<p align="center"><b>Midterm Project</b></p>
+	</font>
+	<hr size="0" align="center" noshade width="100%" color="000000">
+</head>
+
+<body bgcolor=" #F5F5DC" 　text="#xxxxxx" 　 link="#xxxxxx" 　vlink="#0000FF" 　 alink="#xxxxxx" onload="drawFrame()">
+	<div>
+		<h3>Instruction</h3>
+		<div style="position: absolute;left:52%; font-size:25px"><b>Path Simulation</b></div>
+		<ul>
+			<li>You can use 3D-accerlator to control the star. 
+				<a href="instruction.jpg" Target="external" onclick="window.open('instruction.jpg', 'external', 'width=420,height=420,left=180,top=50')">click me</a></li>
+			<li>When the star arrives the red region, you win!</li>
+			<li>It will simulate the path of the star at right block.</li>
+		</ul>
+	</div>
+	<canvas id="canvas" style="border: 6px double black"></canvas>
+	<canvas id="cvs" style="border: 3px solid black; background-color: white; position: absolute ;left: 50%"></canvas>
+	<br>
+	<script>
+	var batch = 30;
+	var samples = batch;
+	var timecycle = 0;
+	var requestCounter = 0;
+	var interval = 0;
+	var nodata = 0;
+	var serverAddressBase = "xdata.";
+	var serverAddress = "xdata.0"; //default file to get from server
+
+	d1 = [];	//acc_x
+	d2 = [];	//acc_y
+	d3 = [];	//acc_z
+	d4 = [];	//TSI(touch)
+
+
+	// Pre-pad the arrays with # of samples null values
+	for (var i = 0; i < samples; ++i) {
+		d1.push(null);
+		d2.push(null);
+		d3.push(null);
+		d4.push(null);
+	}
+
+	var xmlHttp = createXmlHttpRequestObject();
+
+
+	// creates XMLHttpRequest Instance
+	function createXmlHttpRequestObject() {
+		var xmlHttp;
+		try {
+			xmlHttp = new XMLHttpRequest();
+		} catch (e) {
+			try {
+				xmlHttp = new ActiveXObject("Microsoft.XMLHTTP");
+			} catch (e) {}
+		}
+
+		if (!xmlHttp)
+			alert("Error creating the XMLHttpRequest Object");
+		else
+			return xmlHttp;
+	}
+
+	function GetJsonData() {
+		nodata = 0;
+
+		if (xmlHttp) {
+			try {
+				xmlHttp.open("Get", serverAddress, false);
+				xmlHttp.onreadystatechange = handleRequestStateChange; //We use synchronous data transfer, so we don't need this here
+				xmlHttp.send(null);
+				/*try {
+					handleJsonData();
+				} catch (err) {
+					if (err == "no data") {
+						//console.log('Waiting '+serverAddressBase+requestCounter);
+						//setTimeout(GetJsonData,10); //Try again 10ms later
+						nodata = 1; //record status
+						console.log("ERR112");
+					}
+				}*/
+			} catch (e) {
+				console.log("Can't connect to server\n" + e.toString());
+			}
+		}
+	}
+
+	function handleRequestStateChange() {
+		console.log("GetDat::"+xmlHttp.responseText);
+		if (xmlHttp.readyState == 4) {
+			if (xmlHttp.status == 200 || xmlHttp.status == 0) {
+				try {
+					handleJsonData();
+				} catch (e) {
+					console.log("Error reading the response: " + e.toString());
+				}
+			} else {
+				//console.log("Problem retrieving data:\n" + xmlHttp.statusText);
+				console.log("Proble retriving data:\n");
+			}
+		}
+
+	}
+
+	function handleJsonData() {
+
+		var result = xmlHttp.responseText;
+		if (result == '') {
+			//alert('No data from xmlhttprequest object!');
+			throw "no data";
+		} else {
+			try {
+				var jobject = eval("(" + result + ")");
+				var i = 0;
+				if (jobject.time > timecycle) {
+					timecycle = jobject.time;
+					if (jobject.xarray.length == 0) {
+						throw "no data";
+					} else {
+						for (i = 0; i < jobject.xarray.length; i++) {
+							//debug
+							//myDiv.innerHTML += jobject.xarray[i][0] + ", " + jobject.xarray[i][1] + "<br>" ;
+							d1[i] = jobject.xarray[i][0];
+							d2[i] = jobject.xarray[i][1];
+							d3[i] = jobject.xarray[i][2];
+							d4[i]=jobject.xarray[i][3];
+							/*
+							d1.push(jobject.xarray[i][0]); 
+							d2.push(jobject.xarray[i][1]); 
+							d3.push(jobject.xarray[i][2]);
+							*/
+						}
+					}
+				} else {
+					//Do nothing
+				}
+			} catch (e) {
+				//Retry; ignore all json errors
+			}
+		}
+	}
+	//***********************************//
+	var canvas;
+	var context;
+	var cvs;
+	var ctx;
+
+
+
+	// 記錄星星目前的位置
+	var x = 0;
+	var y = 0;
+
+	// 記錄星星在x軸和y軸方向上每一幀要移動多少像素
+	var dx = 0;
+	var dy = 0;
+
+	window.onload = function() {
+		// 設置畫布
+		canvas = document.getElementById("canvas");
+		context = canvas.getContext("2d");
+
+		cvs = document.getElementById("cvs");
+		ctx = cvs.getContext("2d");
+		// 繪製迷宮背景
+		drawMaze(' maze_easy1.png ', 5, 5);
+
+		// 當user按下鍵盤上的鍵時，call processKey()
+		//window.onkeydown = processKey;
+	};
+
+
+	// timer引用，這樣重新加載迷宮的時候可以很方便地停止繪製
+	var timer;
+
+	function drawMaze(mazeFile, startingX, startingY) {
+		// 先停止繪製
+		clearTimeout(timer);
+
+		// 停止星星
+		dx = 0;
+		dy = 0;
+
+		// load迷宮圖片
+		var imgMaze = new Image();
+		imgMaze.onload = function() {
+			// 調整畫布大小以適應迷宮圖片
+			canvas.width = imgMaze.width;
+			canvas.height = imgMaze.height;
+
+			cvs.width = imgMaze.width;
+			cvs.height = imgMaze.height;
+
+
+			// 繪製迷宮
+			context.drawImage(imgMaze, 0, 0);
+
+			// 繪製星星
+			x = startingX;
+			y = startingY;
+
+			var imgStar = document.getElementById("star");
+			context.drawImage(imgStar, x, y + 10);
+			context.stroke();
+
+			// 10毫秒後繪製下一幀
+			timer = setTimeout(drawFrame, 5);
+		};
+		imgMaze.src = mazeFile;
+
+	}
+
+	function checkForCollision() {
+		// 取得星星所在的像素塊，再稍微擴展一點
+		var imgData = context.getImageData(x - 1, y, 32 + 2, 28 + 2);
+		var pixels = imgData.data;
+
+		// 檢測其中的像素
+		for (var i = 0; n = pixels.length, i < n; i += 4) {
+			var red = pixels[i];
+			var green = pixels[i + 1];
+			var blue = pixels[i + 2];
+			var alpha = pixels[i + 3];
+
+			// 檢測黑色的牆（如果檢測到，表示撞牆了）
+			if (red == 0 && green == 0 && blue == 0) {
+				return true;
+			}
+			// 檢測灰色的邊（如果檢測到，表示撞牆了）
+			if (red == 169 && green == 169 && blue == 169) {
+				return true;
+			}
+			// 檢測紅色的邊（如果檢測到，表示你贏了）
+			if (red == 255 && green ==0 && blue ==0) {
+				alert("You win!");
+				x -= dx;
+				y -= dy;
+				dx = 0;
+				dy = 0;
+				return;
+			}
+		}
+		// 沒撞牆
+		return false;
+	}
+	// move function
+	// move depends on accelerations detected by FRDM-KL25Z
+	function move(acc_y,acc_z,touch) {
+		dx = 0;
+		dy = 0;
+		if ((acc_y > 500) && (acc_z>3500)&&(touch<0)) {	
+			dx = -1;
+		}
+		if ((acc_y < -500)&&(acc_z>3500)&&(touch<0)) {
+			dx = 1;
+		}
+		if ((acc_z<3500)&&(acc_y<500)&&(acc_y>-500)) {
+			dy = -1;
+		}
+		if(touch>0) {
+			dy = 1;
+		}
+	}
+
+
+	function drawFrame() {
+		GetJsonData();
+		// 檢測星星是否正在哪個方向上移動，如果不是，則什麼也不做。
+		if (dx != 0 || dy != 0) {
+
+			context.beginPath();
+			context.fillStyle = "white";
+			context.rect(x, y, 30, 30);
+			context.fill();
+
+			ctx.beginPath();
+			ctx.fillStyle = "blue";
+			ctx.rect(x + 2, y + 5, 5, 5);
+			ctx.fill();
+
+
+			// 位置隨移動而改變
+			x += dx;
+			y += dy;
+
+
+			// 碰撞檢測（撞牆的話星星需要放回上一個位置並停止移動）
+			if (checkForCollision()) {
+				//alert("撞牆了");
+				ctx.strokeRect(x - 2, y + 3, 10, 10);
+				x -= dx;
+				y -= dy;
+				dx = 0;
+				dy = 0;
+			}
+
+			// 這裡繪製星星
+			var imgStar = document.getElementById("star");
+			context.drawImage(imgStar, x, y);
+
+		}
+
+		// 10毫秒後繪製下一張
+	serverAddress=serverAddressBase+requestCounter;
+	if(!nodata){ //Keep the file counter
+		requestCounter=(requestCounter+1)%2; //cycle counter
+		//alert('Counter changed: '+requestCounter);
+	}
+	else{
+		//alert('Counter keeped: '+requestCounter);
+	}
+		timer = setTimeout(drawFrame, 5);
+		document.getElementById("position").innerHTML = "<b>Position</b><br>"+" x=" + x + " y=" + y; //這個function放在這裡確保能夠重複執行
+
+		move(d2[10],d3[10],d4[10]);  //有時候一開始會沒data，所以取d[10]
+
+	}
+
+	function loadEasy() {
+		drawMaze(' maze_easy1.png ', 5, 5);
+	}
+
+	function loadHard() {
+		drawMaze(' maze_crazy1.png ', 6, 6);
+	}
+	</script>
+	<div>
+		<button onclick="loadHard()">Crazy Level</button>
+		<button onclick="loadEasy()">Easy Level</button>
+	</div>
+	<div id="position" style="width:200px;background-color:white;opacity: 0.8;position:absolute; left:53% "></div>
+	<br>
+	<!--  embed a music player~ relax -->
+	<embed src="song.mp3" autostart="false" loop="false" hidden="false"></embed>	
+	<img id="star" src=" star3.png">
+	</style>
+</body>
+
+</html>
